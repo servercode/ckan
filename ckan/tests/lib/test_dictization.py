@@ -505,7 +505,7 @@ class TestBasicDictize:
         assert str(sorted_tags[3].expired_timestamp) == '9999-12-31 00:00:00'
         assert str(sorted_tags[4].expired_timestamp) != '9999-12-31 00:00:00'
 
-        extras_revisions = model.Session.query(model.PackageExtraRevision).filter_by(package_id=anna1.id).all()
+        extras_revisions = model.Session.query(model.PackageExtra).filter_by(package_id=anna1.id).all()
 
         sorted_extras = sorted(extras_revisions,
                                key=lambda x: (x.revision_timestamp, x.key))[::-1]
@@ -594,7 +594,7 @@ class TestBasicDictize:
         assert str(sorted_tags[4].expired_timestamp) == '9999-12-31 00:00:00'
         assert str(sorted_tags[5].expired_timestamp) != '9999-12-31 00:00:00'
 
-        extras_revisions = model.Session.query(model.PackageExtraRevision).filter_by(package_id=anna1.id).all()
+        extras_revisions = model.Session.query(model.PackageExtra).filter_by(package_id=anna1.id).all()
 
         sorted_extras = sorted(extras_revisions,
                                key=lambda x: (x.revision_timestamp, x.key))[::-1]
@@ -678,10 +678,8 @@ class TestBasicDictize:
         assert str(sorted_tags[4].expired_timestamp) == '9999-12-31 00:00:00'
         assert str(sorted_tags[5].expired_timestamp) != '9999-12-31 00:00:00'
 
-        extras_revisions = model.Session.query(model.PackageExtraRevision).filter_by(package_id=anna1.id).all()
-
-        sorted_extras = sorted(extras_revisions,
-                               key=lambda x: (x.revision_timestamp, x.key))[::-1]
+        extras_revisions = model.Session.query(model.PackageExtra).filter_by(package_id=anna1.id).all()
+        sorted_extras = sorted(extras_revisions)[::-1]
 
         print [(extra.state, extra.key, extra.value) for extra in sorted_extras]
 
@@ -994,7 +992,7 @@ class TestBasicDictize:
         result['packages'] = sorted(result['packages'], key=lambda x: x['name'])
 
         assert_equal(sorted(result.keys()), sorted(expected.keys()))
-        
+
         for key in result:
             if key in ('is_organization', 'package_count'):
                 continue

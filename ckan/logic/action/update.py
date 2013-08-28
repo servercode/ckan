@@ -98,8 +98,7 @@ def make_latest_pending_package_active(context, data_dict):
 
     #extras
     for extra in pkg.extras_list:
-        q = session.query(model.PackageExtraRevision).filter_by(id=extra.id)
-        _make_latest_rev_active(context, q)
+        q = session.query(model.PackageExtra).filter_by(id=extra.id)
 
     latest_revision = context.get('latest_revision')
     if not latest_revision:

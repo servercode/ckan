@@ -89,7 +89,7 @@ class Package(vdm.sqlalchemy.RevisionedObjectMixin,
             return []
 
         assert len(self.resource_groups_all) == 1, "can only use resources on packages if there is only one resource_group"
-        return [resource for resource in 
+        return [resource for resource in
                 self.resource_groups_all[0].resources_all
                 if resource.state <> 'deleted']
 
@@ -374,8 +374,8 @@ class Package(vdm.sqlalchemy.RevisionedObjectMixin,
     @property
     def all_related_revisions(self):
         '''Returns chronological list of all object revisions related to
-        this package. Includes PackageRevisions, PackageTagRevisions,
-        PackageExtraRevisions and ResourceRevisions.
+        this package. Includes PackageRevisions, PackageTagRevisions
+        and ResourceRevisions.
         @return List of tuples (revision, [list of object revisions of this
                                            revision])
                 Ordered by most recent first.

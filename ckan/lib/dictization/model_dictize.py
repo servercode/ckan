@@ -237,9 +237,7 @@ def package_dictize(pkg, context):
         tag['display_name'] = tag['name']
 
     #extras
-    extra_rev = model.extra_revision_table
-    q = select([extra_rev]).where(extra_rev.c.package_id == pkg.id)
-    result = _execute_with_revision(q, extra_rev, context)
+    result = model.Session.query(model.PackageExtra).filter(model.PackageExtra.package_id == pkg.id)
     result_dict["extras"] = extras_list_dictize(result, context)
     #tracking
     tracking = model.TrackingSummary.get_for_package(pkg.id)
