@@ -1,3 +1,5 @@
+# encoding: utf-8
+
 import logging
 
 from ckan.common import json
@@ -63,13 +65,13 @@ class TextView(p.SingletonPlugin):
     def info(self):
         return {'name': 'text_view',
                 'title': p.toolkit._('Text'),
-                'icon': 'file-text-alt',
+                'icon': 'file-text-o',
                 'default_title': p.toolkit._('Text'),
                 }
 
     def can_view(self, data_dict):
         resource = data_dict['resource']
-        format_lower = resource['format'].lower()
+        format_lower = resource.get('format', '').lower()
         proxy_enabled = p.plugin_loaded('resource_proxy')
         same_domain = datapreview.on_same_domain(data_dict)
         if format_lower in self.jsonp_formats:

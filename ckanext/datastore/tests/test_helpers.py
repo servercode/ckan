@@ -1,10 +1,14 @@
-import pylons
+# encoding: utf-8
+
 import sqlalchemy.orm as orm
 import nose
 
+from ckan.common import config
 import ckanext.datastore.helpers as datastore_helpers
+from ckanext.datastore.tests.helpers import DatastoreLegacyTestBase
+import ckanext.datastore.backend.postgres as postgres_backend
 import ckanext.datastore.tests.helpers as datastore_test_helpers
-import ckanext.datastore.db as db
+import ckanext.datastore.backend.postgres as db
 
 
 eq_ = nose.tools.eq_
@@ -37,10 +41,10 @@ class TestTypeGetters(object):
                      'SELECT * FROM "foo"; SELECT * FROM "abc"']
 
         for single in singles:
-            assert datastore_helpers.is_single_statement(single) is True
+            assert postgres_backend.is_single_statement(single) is True
 
         for multiple in multiples:
-            assert datastore_helpers.is_single_statement(multiple) is False
+            assert postgres_backend.is_single_statement(multiple) is False
 
     def test_should_fts_index_field_type(self):
         indexable_field_types = ['tsvector',
@@ -60,47 +64,39 @@ class TestTypeGetters(object):
             assert datastore_helpers.should_fts_index_field_type(non_indexable) is False
 
 
-class TestGetTables(object):
+class TestGetTables(DatastoreLegacyTestBase):
 
     @classmethod
     def setup_class(cls):
-
-        if not pylons.config.get('ckan.datastore.read_url'):
-            raise nose.SkipTest('Datastore runs on legacy mode, skipping...')
-
-        engine = db._get_engine(
-            {'connection_url': pylons.config['ckan.datastore.write_url']}
-        )
+        super(TestGetTables, cls).setup_class()
+        engine = db.get_write_engine()
         cls.Session = orm.scoped_session(orm.sessionmaker(bind=engine))
 
         datastore_test_helpers.clear_db(cls.Session)
 
         create_tables = [
-            'CREATE TABLE test_a (id_a text)',
-            'CREATE TABLE test_b (id_b text)',
-            'CREATE TABLE "TEST_C" (id_c text)',
+            u'CREATE TABLE test_a (id_a text)',
+            u'CREATE TABLE test_b (id_b text)',
+            u'CREATE TABLE "TEST_C" (id_c text)',
+            u'CREATE TABLE test_d ("α/α" integer)',
         ]
         for create_table_sql in create_tables:
             cls.Session.execute(create_table_sql)
 
-    @classmethod
-    def teardown_class(cls):
-        datastore_test_helpers.clear_db(cls.Session)
-
     def test_get_table_names(self):
 
         test_cases = [
-            ('SELECT * FROM test_a', ['test_a']),
-            ('SELECT * FROM public.test_a', ['test_a']),
-            ('SELECT * FROM "TEST_C"', ['TEST_C']),
-            ('SELECT * FROM public."TEST_C"', ['TEST_C']),
-            ('SELECT * FROM pg_catalog.pg_database', ['pg_database']),
-            ('SELECT rolpassword FROM pg_roles', ['pg_authid']),
-            ('''SELECT p.rolpassword
+            (u'SELECT * FROM test_a', ['test_a']),
+            (u'SELECT * FROM public.test_a', ['test_a']),
+            (u'SELECT * FROM "TEST_C"', ['TEST_C']),
+            (u'SELECT * FROM public."TEST_C"', ['TEST_C']),
+            (u'SELECT * FROM pg_catalog.pg_database', ['pg_database']),
+            (u'SELECT rolpassword FROM pg_roles', ['pg_authid']),
+            (u'''SELECT p.rolpassword
                 FROM pg_roles p
                 JOIN test_b b
                 ON p.rolpassword = b.id_b''', ['pg_authid', 'test_b']),
-            ('''SELECT id_a, id_b, id_c
+            (u'''SELECT id_a, id_b, id_c
                 FROM (
                     SELECT *
                     FROM (
@@ -108,7 +104,9 @@ class TestGetTables(object):
                         FROM "TEST_C") AS c,
                         test_b) AS b,
                     test_a AS a''', ['test_a', 'test_b', 'TEST_C']),
-            ('INSERT INTO test_a VALUES (\'a\')', ['test_a']),
+            (u'INSERT INTO test_a VALUES (\'a\')', ['test_a']),
+            (u'SELECT "α/α" FROM test_d', ['test_d']),
+            (u'SELECT "α/α" FROM test_d WHERE "α/α" > 1000', ['test_d']),
         ]
 
         context = {

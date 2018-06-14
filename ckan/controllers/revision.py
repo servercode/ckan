@@ -1,6 +1,9 @@
+# encoding: utf-8
+
 from datetime import datetime, timedelta
 
 from pylons.i18n import get_lang
+from six import text_type
 
 import ckan.logic as logic
 import ckan.lib.base as base
@@ -15,7 +18,7 @@ class RevisionController(base.BaseController):
     def __before__(self, action, **env):
         base.BaseController.__before__(self, action, **env)
 
-        context = {'model': model, 'user': c.user or c.author,
+        context = {'model': model, 'user': c.user,
                    'auth_user_obj': c.userobj}
         if c.user:
             try:
@@ -28,7 +31,7 @@ class RevisionController(base.BaseController):
         try:
             logic.check_access('site_read', context)
         except logic.NotAuthorized:
-            base.abort(401, _('Not authorized to see this page'))
+            base.abort(403, _('Not authorized to see this page'))
 
     def index(self):
         return self.list()
@@ -42,7 +45,7 @@ class RevisionController(base.BaseController):
                 title=_(u'CKAN Repository Revision History'),
                 link=h.url_for(controller='revision', action='list', id=''),
                 description=_(u'Recent changes to the CKAN repository.'),
-                language=unicode(get_lang()),
+                language=text_type(get_lang()),
             )
             # TODO: make this configurable?
             # we do not want the system to fall over!
@@ -122,7 +125,7 @@ class RevisionController(base.BaseController):
             query = model.Session.query(model.Revision)
             c.page = h.Page(
                 collection=query,
-                page=self._get_page_number(request.params),
+                page=h.get_page_number(request.params),
                 url=h.pager_url,
                 items_per_page=20
             )
@@ -179,7 +182,7 @@ class RevisionController(base.BaseController):
         if action in ['delete', 'undelete']:
             # this should be at a lower level (e.g. logic layer)
             if not c.revision_change_state_allowed:
-                base.abort(401)
+                base.abort(403)
             if action == 'delete':
                 revision.state = model.State.DELETED
             elif action == 'undelete':

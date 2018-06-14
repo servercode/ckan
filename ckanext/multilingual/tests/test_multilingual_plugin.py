@@ -1,42 +1,44 @@
+# encoding: utf-8
+
 import ckan.plugins
 import ckanext.multilingual.plugin as mulilingual_plugin
-import ckan.lib.helpers
+import ckan.lib.helpers as h
 import ckan.lib.create_test_data
 import ckan.logic.action.update
 import ckan.model as model
-import ckan.tests
-import ckan.tests.html_check
+import ckan.tests.legacy
+import ckan.tests.legacy.html_check
 import routes
-import paste.fixture
-import pylons.test
+from ckan.tests.helpers import _get_test_app
 
 _create_test_data = ckan.lib.create_test_data
 
 
-class TestDatasetTermTranslation(ckan.tests.html_check.HtmlCheckMethods):
+class TestDatasetTermTranslation(ckan.tests.legacy.html_check.HtmlCheckMethods):
     'Test the translation of datasets by the multilingual_dataset plugin.'
     @classmethod
     def setup(cls):
-        cls.app = paste.fixture.TestApp(pylons.test.pylonsapp)
+
+        cls.app = _get_test_app()
         ckan.plugins.load('multilingual_dataset')
         ckan.plugins.load('multilingual_group')
         ckan.plugins.load('multilingual_tag')
-        ckan.tests.setup_test_search_index()
+        ckan.tests.legacy.setup_test_search_index()
         _create_test_data.CreateTestData.create_translations_test_data()
 
         cls.sysadmin_user = model.User.get('testsysadmin')
         cls.org = {'name': 'test_org',
                    'title': 'russian',
                    'description': 'Roger likes these books.'}
-        ckan.tests.call_action_api(cls.app, 'organization_create',
-                                   apikey=cls.sysadmin_user.apikey,
-                                   **cls.org)
+        ckan.tests.legacy.call_action_api(cls.app, 'organization_create',
+                                          apikey=cls.sysadmin_user.apikey,
+                                          **cls.org)
         dataset = {'name': 'test_org_dataset',
                    'title': 'A Novel By Tolstoy',
                    'owner_org': cls.org['name']}
-        ckan.tests.call_action_api(cls.app, 'package_create',
-                                   apikey=cls.sysadmin_user.apikey,
-                                   **dataset)
+        ckan.tests.legacy.call_action_api(cls.app, 'package_create',
+                                          apikey=cls.sysadmin_user.apikey,
+                                          **dataset)
 
         # Add translation terms that match a couple of group names and package
         # names. Group names and package names should _not_ get translated even
@@ -58,7 +60,7 @@ class TestDatasetTermTranslation(ckan.tests.html_check.HtmlCheckMethods):
         ckan.plugins.unload('multilingual_group')
         ckan.plugins.unload('multilingual_tag')
         ckan.model.repo.rebuild_db()
-        ckan.lib.search.clear()
+        ckan.lib.search.clear_all()
 
     def test_user_read_translation(self):
         '''Test the translation of datasets on user view pages by the
@@ -69,8 +71,8 @@ class TestDatasetTermTranslation(ckan.tests.html_check.HtmlCheckMethods):
         # It is testsysadmin who created the dataset, so testsysadmin whom
         # we'd expect to see the datasets for.
         for user_name in ('testsysadmin',):
-            offset = routes.url_for(
-                controller='user', action='read', id=user_name)
+            offset = h.url_for(
+                'user.read', id=user_name)
             for (lang_code, translations) in (
                     ('de', _create_test_data.german_translations),
                     ('fr', _create_test_data.french_translations),
@@ -195,22 +197,35 @@ class TestDatasetSearchIndex():
 
         result = mulilingual_plugin.MultilingualDataset().before_index(
             sample_index_data)
-
-        assert result == {
-            'text_pl': '',
-            'text_de': '',
-            'text_ro': '',
-            'title': u'david',
-            'notes': u'an interesting note',
-            'tags': [u'moon', 'boon'],
-            'title_en': u'david',
-            'download_url': u'moo',
-            'text_it': u'italian boon',
-            'text_es': '',
-            'text_en': u'an interesting note moon boon moo',
-            'text_nl': '',
-            'title_it': u'italian david',
-            'text_pt': '',
-            'title_fr': u'french david',
-            'text_fr': u'french note french boon french_moo french moon'
-        }, result
+        assert result == {'text_sr@latin': '',
+                          'text_fi': '',
+                          'text_de': '',
+                          'text_pt_BR': '',
+                          u'title_fr': u'french david',
+                          'text_fr': u'french note french boon french_moo french moon',
+                          'text_ja': '',
+                          'text_sr': '',
+                          'title': u'david',
+                          'text_ca': '',
+                          'download_url': u'moo',
+                          'text_hu': '',
+                          'text_sa': '',
+                          'text_cs_CZ': '',
+                          'text_nl': '',
+                          'text_no': '',
+                          'text_ko_KR': '',
+                          'text_sk': '',
+                          'text_bg': '',
+                          'text_sv': '',
+                          'tags': [u'moon', 'boon'],
+                          'text_el': '',
+                          'title_en': u'david',
+                          'text_en': u'an interesting note moon boon moo',
+                          'text_es': '',
+                          'text_sl': '',
+                          'text_pl': '',
+                          'notes': u'an interesting note',
+                          'text_lv': '',
+                          'text_it': u'italian boon',
+                          u'title_it': u'italian david',
+                          'text_ru': ''}, result

@@ -1,15 +1,15 @@
+# encoding: utf-8
+
 '''Tests for the ckanext.example_iauthfunctions extension.
 
 '''
-import pylons.config as config
-import webtest
+from ckan.common import config
 
 import ckan.model as model
-import ckan.tests as tests
 
 import ckan.plugins
-import ckan.new_tests.factories as factories
-import ckan.new_tests.helpers as helpers
+import ckan.tests.factories as factories
+import ckan.tests.helpers as helpers
 from ckanext.example_iresourcecontroller import plugin
 
 
@@ -20,9 +20,7 @@ class TestExampleIResourceController(object):
 
     def setup(self):
         # Set up the test app
-        self.app = ckan.config.middleware.make_app(
-            config['global_conf'], **config)
-        self.app = webtest.TestApp(self.app)
+        self.app = helpers._get_test_app()
 
     def teardown(self):
         # Unload the plugin

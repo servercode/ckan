@@ -54,18 +54,19 @@ sqlalchemy.url = postgresql://ckan_default:pass@localhost/ckan_default
 ckan.datastore.default_fts_lang = english
 ckan.datastore.default_fts_index_method = gist
 
+
 ## Site Settings
 
 ckan.site_url =
-
+#ckan.use_pylons_response_cleanup_middleware = true
 
 ## Authorization Settings
 
 ckan.auth.anon_create_dataset = false
-ckan.auth.create_unowned_dataset = true
-ckan.auth.create_dataset_if_not_in_organization = true
-ckan.auth.user_create_groups = true
-ckan.auth.user_create_organizations = true
+ckan.auth.create_unowned_dataset = false
+ckan.auth.create_dataset_if_not_in_organization = false
+ckan.auth.user_create_groups = false
+ckan.auth.user_create_organizations = false
 ckan.auth.user_delete_groups = true
 ckan.auth.user_delete_organizations = true
 ckan.auth.create_user_via_api = false
@@ -78,7 +79,11 @@ ckan.auth.roles_that_cascade_to_sub_groups = admin
 ckan.site_id = default
 #solr_url = http://127.0.0.1:8983/solr
 
-#ckan.simple_search = 1
+
+## Redis Settings
+
+# URL to your Redis instance, including the database to be used.
+#ckan.redis.url = redis://localhost:6379/0
 
 
 ## CORS Settings
@@ -102,15 +107,28 @@ ckan.plugins = stats text_view image_view recline_view
 # (plugins must be loaded in ckan.plugins)
 ckan.views.default_views = image_view text_view recline_view
 
+# Customize which text formats the text_view plugin will show
+#ckan.preview.json_formats = json
+#ckan.preview.xml_formats = xml rdf rdf+xml owl+xml atom rss
+#ckan.preview.text_formats = text plain text/plain
+
+# Customize which image formats the image_view plugin will show
+#ckan.preview.image_formats = png jpeg jpg gif
 
 ## Front-End Settings
+
+# Uncomment following configuration to enable using of Bootstrap 2
+#ckan.base_public_folder = public-bs2
+#ckan.base_templates_folder = templates-bs2
+
 ckan.site_title = CKAN
 ckan.site_logo = /base/images/ckan-logo.png
 ckan.site_description =
-ckan.favicon = /images/icons/ckan.ico
+ckan.favicon = /base/images/ckan.ico
 ckan.gravatar_default = identicon
 ckan.preview.direct = png jpg gif
 ckan.preview.loadable = html htm rdf+xml owl+xml xml n3 n-triples turtle plain atom csv tsv rss txt json
+ckan.display_timezone = server
 
 # package_hide_extras = for_search_index_only
 #package_edit_return_url = http://another.frontend/dataset/<NAME>
@@ -146,10 +164,13 @@ ckan.feeds.author_link =
 
 #ckan.datapusher.formats = csv xls xlsx tsv application/csv application/vnd.ms-excel application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 #ckan.datapusher.url = http://127.0.0.1:8800/
+#ckan.datapusher.assume_task_stale_after = 3600
 
 # Resource Proxy settings
 # Preview size limit, default: 1MB
-#ckan.resource_proxy.max_file_size = 1 * 1024 * 1024
+#ckan.resource_proxy.max_file_size = 1048576
+# Size of chunks to read/write.
+#ckan.resource_proxy.chunk_size = 4096
 
 ## Activity Streams Settings
 
@@ -162,11 +183,11 @@ ckan.hide_activity_from_users = %(ckan.site_id)s
 
 ## Email settings
 
-#email_to = you@yourdomain.com
-#error_email_from = paste@localhost
+#email_to = errors@example.com
+#error_email_from = ckan-errors@example.com
 #smtp.server = localhost
 #smtp.starttls = False
-#smtp.user = your_username@gmail.com
+#smtp.user = username@example.com
 #smtp.password = your_password
 #smtp.mail_from =
 

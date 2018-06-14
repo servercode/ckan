@@ -1,9 +1,11 @@
-from routes import url_for
+# encoding: utf-8
+
+from ckan.lib.helpers import url_for
 
 import ckan.plugins as p
 
 from nose.tools import assert_true
-from ckan.new_tests import helpers, factories
+from ckan.tests import helpers, factories
 
 
 class TestImageView(helpers.FunctionalTestBase):

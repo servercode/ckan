@@ -1,3 +1,5 @@
+# encoding: utf-8
+
 """A Paste template for creating new CKAN extensions.
 
 Usage::
@@ -51,8 +53,16 @@ class CkanextTemplate(Template):
     def check_vars(self, vars, cmd):
         vars = Template.check_vars(self, vars, cmd)
 
+        # workaround for a paster issue https://github.com/ckan/ckan/issues/2636
+        # this is only used from a short-lived paster command
+        try:
+            reload(sys)  # Python 2
+            sys.setdefaultencoding('utf-8')
+        except NameError:
+            pass         # Python 3
+
         if not vars['project'].startswith('ckanext-'):
-            print "\nError: Project name must start with 'ckanext-'"
+            print("\nError: Project name must start with 'ckanext-'")
             sys.exit(1)
 
         # The project name without the ckanext-.
@@ -63,7 +73,7 @@ class CkanextTemplate(Template):
         keywords = [keyword for keyword in keywords
                     if keyword not in ('ckan', 'CKAN')]
         keywords.insert(0, 'CKAN')
-        vars['keywords'] = ' '.join(keywords)
+        vars['keywords'] = u' '.join(keywords)
 
         # For an extension named ckanext-example we want a plugin class
         # named ExamplePlugin.

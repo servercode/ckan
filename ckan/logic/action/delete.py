@@ -1,11 +1,22 @@
+# encoding: utf-8
+
 '''API functions for deleting data from CKAN.'''
 
+import logging
+
+import sqlalchemy as sqla
+
+import ckan.lib.jobs as jobs
 import ckan.logic
 import ckan.logic.action
 import ckan.plugins as plugins
 import ckan.lib.dictization.model_dictize as model_dictize
+from ckan import authz
 
 from ckan.common import _
+
+
+log = logging.getLogger('ckan.logic')
 
 validate = ckan.lib.navl.dictization_functions.validate
 
@@ -37,12 +48,27 @@ def user_delete(context, data_dict):
     if user is None:
         raise NotFound('User "{id}" was not found.'.format(id=user_id))
 
+    # New revision, needed by the member table
+    rev = model.repo.new_revision()
+    rev.author = context['user']
+    rev.message = _(u' Delete User: {0}').format(user.name)
+
     user.delete()
+
+    user_memberships = model.Session.query(model.Member).filter(
+        model.Member.table_id == user.id).all()
+
+    for membership in user_memberships:
+        membership.delete()
+
     model.repo.commit()
 
 
 def package_delete(context, data_dict):
     '''Delete a dataset (package).
+
+    This makes the dataset disappear from all web & API views, apart from the
+    trash.
 
     You must be authorized to delete the dataset.
 
@@ -59,7 +85,7 @@ def package_delete(context, data_dict):
     if entity is None:
         raise NotFound
 
-    _check_access('package_delete',context, data_dict)
+    _check_access('package_delete', context, data_dict)
 
     rev = model.repo.new_revision()
     rev.author = user
@@ -71,7 +97,62 @@ def package_delete(context, data_dict):
         item.after_delete(context, data_dict)
 
     entity.delete()
+
+    dataset_memberships = model.Session.query(model.Member).filter(
+        model.Member.table_id == id).filter(
+        model.Member.state == 'active').all()
+
+    for membership in dataset_memberships:
+        membership.delete()
+
     model.repo.commit()
+
+
+def dataset_purge(context, data_dict):
+    '''Purge a dataset.
+
+    .. warning:: Purging a dataset cannot be undone!
+
+    Purging a database completely removes the dataset from the CKAN database,
+    whereas deleting a dataset simply marks the dataset as deleted (it will no
+    longer show up in the front-end, but is still in the db).
+
+    You must be authorized to purge the dataset.
+
+    :param id: the name or id of the dataset to be purged
+    :type id: string
+
+    '''
+    from sqlalchemy import or_
+
+    model = context['model']
+    id = _get_or_bust(data_dict, 'id')
+
+    pkg = model.Package.get(id)
+    context['package'] = pkg
+    if pkg is None:
+        raise NotFound('Dataset was not found')
+
+    _check_access('dataset_purge', context, data_dict)
+
+    members = model.Session.query(model.Member) \
+                   .filter(model.Member.table_id == pkg.id) \
+                   .filter(model.Member.table_name == 'package')
+    if members.count() > 0:
+        for m in members.all():
+            m.purge()
+
+    for r in model.Session.query(model.PackageRelationship).filter(
+            or_(model.PackageRelationship.subject_package_id == pkg.id,
+                model.PackageRelationship.object_package_id == pkg.id)).all():
+        r.purge()
+
+    pkg = model.Package.get(id)
+    # no new_revision() needed since there are no object_revisions created
+    # during purge
+    pkg.purge()
+    model.repo.commit_and_remove()
+
 
 def resource_delete(context, data_dict):
     '''Delete a resource from a dataset.
@@ -105,7 +186,7 @@ def resource_delete(context, data_dict):
                 r['id'] == id]
     try:
         pkg_dict = _get_action('package_update')(context, pkg_dict)
-    except ValidationError, e:
+    except ValidationError as e:
         errors = e.error_dict['resources'][-1]
         raise ValidationError(errors)
 
@@ -197,53 +278,6 @@ def package_relationship_delete(context, data_dict):
     relationship.delete()
     model.repo.commit()
 
-def related_delete(context, data_dict):
-    '''Delete a related item from a dataset.
-
-    You must be a sysadmin or the owner of the related item to delete it.
-
-    :param id: the id of the related item
-    :type id: string
-
-    '''
-    model = context['model']
-    session = context['session']
-    user = context['user']
-    userobj = model.User.get(user)
-
-    id = _get_or_bust(data_dict, 'id')
-
-    entity = model.Related.get(id)
-
-    if entity is None:
-        raise NotFound
-
-    _check_access('related_delete',context, data_dict)
-
-    related_dict = model_dictize.related_dictize(entity, context)
-    activity_dict = {
-        'user_id': userobj.id,
-        'object_id': entity.id,
-        'activity_type': 'deleted related item',
-    }
-    activity_dict['data'] = {
-        'related': related_dict
-    }
-    activity_create_context = {
-        'model': model,
-        'user': user,
-        'defer_commit': True,
-        'ignore_auth': True,
-        'session': session
-    }
-
-    _get_action('activity_create')(activity_create_context, activity_dict)
-    session.commit()
-
-    entity.delete()
-    model.repo.commit()
-
-
 def member_delete(context, data_dict=None):
     '''Remove an object (e.g. a user, dataset or group) from a group.
 
@@ -312,12 +346,26 @@ def _group_or_org_delete(context, data_dict, is_org=False):
     else:
         _check_access('group_delete', context, data_dict)
 
-    # organization delete will delete all datasets for that org
-    # FIXME this gets all the packages the user can see which generally will
-    # be all but this is only a fluke so we should fix this properly
+    # organization delete will not occure whilke all datasets for that org are
+    # not deleted
     if is_org:
-        for pkg in group.packages(with_private=True):
-            _get_action('package_delete')(context, {'id': pkg.id})
+        datasets = model.Session.query(model.Package) \
+                        .filter_by(owner_org=group.id) \
+                        .filter(model.Package.state != 'deleted') \
+                        .count()
+        if datasets:
+            if not authz.check_config_permission('ckan.auth.create_unowned_dataset'):
+                raise ValidationError(_('Organization cannot be deleted while it '
+                                      'still has datasets'))
+
+            pkg_table = model.package_table
+            # using Core SQLA instead of the ORM should be faster
+            model.Session.execute(
+                pkg_table.update().where(
+                    sqla.and_(pkg_table.c.owner_org == group.id,
+                              pkg_table.c.state != 'deleted')
+                ).values(owner_org=None)
+            )
 
     rev = model.repo.new_revision()
     rev.author = user
@@ -357,7 +405,9 @@ def group_delete(context, data_dict):
 def organization_delete(context, data_dict):
     '''Delete an organization.
 
-    You must be authorized to delete the organization.
+    You must be authorized to delete the organization
+    and no datasets should belong to the organization
+    unless 'ckan.auth.create_unowned_dataset=True'
 
     :param id: the name or id of the organization
     :type id: string
@@ -378,7 +428,7 @@ def _group_or_org_purge(context, data_dict, is_org=False):
 
     :param is_org: you should pass is_org=True if purging an organization,
         otherwise False (optional, default: False)
-    :type is_org: boolean
+    :type is_org: bool
 
     '''
     model = context['model']
@@ -397,12 +447,34 @@ def _group_or_org_purge(context, data_dict, is_org=False):
     else:
         _check_access('group_purge', context, data_dict)
 
-    members = model.Session.query(model.Member)
-    members = members.filter(model.Member.group_id == group.id)
+    if is_org:
+        # Clear the owner_org field
+        datasets = model.Session.query(model.Package) \
+                        .filter_by(owner_org=group.id) \
+                        .filter(model.Package.state != 'deleted') \
+                        .count()
+        if datasets:
+            if not authz.check_config_permission('ckan.auth.create_unowned_dataset'):
+                raise ValidationError('Organization cannot be purged while it '
+                                      'still has datasets')
+            pkg_table = model.package_table
+            # using Core SQLA instead of the ORM should be faster
+            model.Session.execute(
+                pkg_table.update().where(
+                    sqla.and_(pkg_table.c.owner_org == group.id,
+                              pkg_table.c.state != 'deleted')
+                ).values(owner_org=None)
+            )
+
+    # Delete related Memberships
+    members = model.Session.query(model.Member) \
+                   .filter(sqla.or_(model.Member.group_id == group.id,
+                                    model.Member.table_id == group.id))
     if members.count() > 0:
-        model.repo.new_revision()
+        # no need to do new_revision() because Member is not revisioned, nor
+        # does it cascade delete any revisioned objects
         for m in members.all():
-            m.delete()
+            m.purge()
         model.repo.commit_and_remove()
 
     group = model.Group.get(id)
@@ -418,6 +490,8 @@ def group_purge(context, data_dict):
     Purging a group completely removes the group from the CKAN database,
     whereas deleting a group simply marks the group as deleted (it will no
     longer show up in the frontend, but is still in the db).
+
+    Datasets in the organization will remain, just not in the purged group.
 
     You must be authorized to purge the group.
 
@@ -436,6 +510,9 @@ def organization_purge(context, data_dict):
     database, whereas deleting an organization simply marks the organization as
     deleted (it will no longer show up in the frontend, but is still in the
     db).
+
+    Datasets owned by the organization will remain, just not in an
+    organization any more.
 
     You must be authorized to purge the organization.
 
@@ -521,19 +598,6 @@ def tag_delete(context, data_dict):
     tag_obj.delete()
     model.repo.commit()
 
-def package_relationship_delete_rest(context, data_dict):
-
-    # rename keys
-    key_map = {'id': 'subject',
-               'id2': 'object',
-               'rel': 'type'}
-    # We want 'destructive', so that the value of the subject,
-    # object and rel in the URI overwrite any values for these
-    # in params. This is because you are not allowed to change
-    # these values.
-    data_dict = ckan.logic.action.rename_keys(data_dict, key_map, destructive=True)
-
-    package_relationship_delete(context, data_dict)
 
 def _unfollow(context, data_dict, schema, FollowerClass):
     model = context['model']
@@ -646,3 +710,48 @@ def unfollow_group(context, data_dict):
             ckan.logic.schema.default_follow_group_schema())
     _unfollow(context, data_dict, schema,
             context['model'].UserFollowingGroup)
+
+
+@ckan.logic.validate(ckan.logic.schema.job_clear_schema)
+def job_clear(context, data_dict):
+    '''Clear background job queues.
+
+    Does not affect jobs that are already being processed.
+
+    :param list queues: The queues to clear. If not given then ALL
+        queues are cleared.
+
+    :returns: The cleared queues.
+    :rtype: list
+
+    .. versionadded:: 2.7
+    '''
+    _check_access(u'job_clear', context, data_dict)
+    queues = data_dict.get(u'queues')
+    if queues:
+        queues = [jobs.get_queue(q) for q in queues]
+    else:
+        queues = jobs.get_all_queues()
+    names = [jobs.remove_queue_name_prefix(queue.name) for queue in queues]
+    for queue, name in zip(queues, names):
+        queue.empty()
+        log.info(u'Cleared background job queue "{}"'.format(name))
+    return names
+
+
+def job_cancel(context, data_dict):
+    '''Cancel a queued background job.
+
+    Removes the job from the queue and deletes it.
+
+    :param string id: The ID of the background job.
+
+    .. versionadded:: 2.7
+    '''
+    _check_access(u'job_cancel', context, data_dict)
+    id = _get_or_bust(data_dict, u'id')
+    try:
+        jobs.job_from_id(id).delete()
+        log.info(u'Cancelled background job {}'.format(id))
+    except KeyError:
+        raise NotFound

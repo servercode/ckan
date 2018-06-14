@@ -1,17 +1,32 @@
+# encoding: utf-8
+
 # Note these functions are similar to, but separate from name/title mungers
 # found in the ckanext importer. That one needs to be stable to prevent
 # packages changing name on reimport, but these ones can be changed and
 # improved.
 
+import os.path
 import re
 
+from six import text_type
+
 from ckan import model
+from ckan.lib.io import decode_path
+
+# Maximum length of a filename's extension (including the '.')
+MAX_FILENAME_EXTENSION_LENGTH = 21
+
+# Maximum total length of a filename (including extension)
+MAX_FILENAME_TOTAL_LENGTH = 100
+
+# Minimum total length of a filename (including extension)
+MIN_FILENAME_TOTAL_LENGTH = 3
 
 
 def munge_name(name):
     '''Munges the package name field in case it is not to spec.'''
     # substitute non-ascii characters
-    if isinstance(name, unicode):
+    if isinstance(name, text_type):
         name = substitute_ascii_equivalents(name)
     # separators become dashes
     name = re.sub('[ .:/]', '-', name)
@@ -26,14 +41,14 @@ def munge_name(name):
 def munge_title_to_name(name):
     '''Munge a package title into a package name.'''
     # substitute non-ascii characters
-    if isinstance(name, unicode):
+    if isinstance(name, text_type):
         name = substitute_ascii_equivalents(name)
     # convert spaces and separators
     name = re.sub('[ .:/]', '-', name)
     # take out not-allowed characters
     name = re.sub('[^a-zA-Z0-9-_]', '', name).lower()
     # remove doubles
-    name = re.sub('--', '-', name)
+    name = re.sub('-+', '-', name)
     # remove leading or trailing hyphens
     name = name.strip('-')
     # if longer than max_length, keep last word if a year
@@ -81,15 +96,15 @@ def substitute_ascii_equivalents(text_unicode):
         0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
         0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u',
         0xfd: 'y', 0xfe: 'th', 0xff: 'y',
-        #0xa1: '!', 0xa2: '{cent}', 0xa3: '{pound}', 0xa4: '{currency}',
-        #0xa5: '{yen}', 0xa6: '|', 0xa7: '{section}', 0xa8: '{umlaut}',
-        #0xa9: '{C}', 0xaa: '{^a}', 0xab: '<<', 0xac: '{not}',
-        #0xad: '-', 0xae: '{R}', 0xaf: '_', 0xb0: '{degrees}',
-        #0xb1: '{+/-}', 0xb2: '{^2}', 0xb3: '{^3}', 0xb4:"'",
-        #0xb5: '{micro}', 0xb6: '{paragraph}', 0xb7: '*', 0xb8: '{cedilla}',
-        #0xb9: '{^1}', 0xba: '{^o}', 0xbb: '>>',
-        #0xbc: '{1/4}', 0xbd: '{1/2}', 0xbe: '{3/4}', 0xbf: '?',
-        #0xd7: '*', 0xf7: '/'
+        # 0xa1: '!', 0xa2: '{cent}', 0xa3: '{pound}', 0xa4: '{currency}',
+        # 0xa5: '{yen}', 0xa6: '|', 0xa7: '{section}', 0xa8: '{umlaut}',
+        # 0xa9: '{C}', 0xaa: '{^a}', 0xab: '<<', 0xac: '{not}',
+        # 0xad: '-', 0xae: '{R}', 0xaf: '_', 0xb0: '{degrees}',
+        # 0xb1: '{+/-}', 0xb2: '{^2}', 0xb3: '{^3}', 0xb4:"'",
+        # 0xb5: '{micro}', 0xb6: '{paragraph}', 0xb7: '*', 0xb8: '{cedilla}',
+        # 0xb9: '{^1}', 0xba: '{^o}', 0xbb: '>>',
+        # 0xbc: '{1/4}', 0xbd: '{1/2}', 0xbe: '{3/4}', 0xbf: '?',
+        # 0xd7: '*', 0xf7: '/'
     }
 
     r = ''
@@ -111,11 +126,49 @@ def munge_tag(tag):
     return tag
 
 
-def munge_filename(filename):
+def munge_filename_legacy(filename):
+    ''' Tidies a filename. NB: deprecated
+
+    Unfortunately it mangles any path or filename extension, so is deprecated.
+    It needs to remain unchanged for use by group_dictize() and
+    Upload.update_data_dict() because if this routine changes then group images
+    uploaded previous to the change may not be viewable.
+    '''
     filename = substitute_ascii_equivalents(filename)
     filename = filename.strip()
     filename = re.sub(r'[^a-zA-Z0-9.\- ]', '', filename).replace(' ', '-')
     filename = _munge_to_length(filename, 3, 100)
+    return filename
+
+
+def munge_filename(filename):
+    ''' Tidies a filename
+
+    Keeps the filename extension (e.g. .csv).
+    Strips off any path on the front.
+
+    Returns a Unicode string.
+    '''
+    if not isinstance(filename, text_type):
+        filename = decode_path(filename)
+
+    # Ignore path
+    filename = os.path.split(filename)[1]
+
+    # Clean up
+    filename = filename.lower().strip()
+    filename = substitute_ascii_equivalents(filename)
+    filename = re.sub(u'[^a-zA-Z0-9_. -]', '', filename).replace(u' ', u'-')
+    filename = re.sub(u'-+', u'-', filename)
+
+    # Enforce length constraints
+    name, ext = os.path.splitext(filename)
+    ext = ext[:MAX_FILENAME_EXTENSION_LENGTH]
+    ext_len = len(ext)
+    name = _munge_to_length(name, max(1, MIN_FILENAME_TOTAL_LENGTH - ext_len),
+                            MAX_FILENAME_TOTAL_LENGTH - ext_len)
+    filename = name + ext
+
     return filename
 
 

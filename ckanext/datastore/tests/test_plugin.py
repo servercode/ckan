@@ -1,7 +1,9 @@
+# encoding: utf-8
+
 import nose
 import mock
 
-import ckan.new_tests.helpers as helpers
+import ckan.tests.helpers as helpers
 import ckan.plugins as p
 import ckanext.datastore.interfaces as interfaces
 import ckanext.datastore.plugin as plugin
@@ -18,6 +20,12 @@ class TestPluginLoadingOrder(object):
             p.unload('datastore')
         if p.plugin_loaded('sample_datastore_plugin'):
             p.unload('sample_datastore_plugin')
+
+    def teardown(self):
+        if p.plugin_loaded('sample_datastore_plugin'):
+            p.unload('sample_datastore_plugin')
+        if p.plugin_loaded('datastore'):
+            p.unload('datastore')
 
     def test_loading_datastore_first_works(self):
         p.load('datastore')

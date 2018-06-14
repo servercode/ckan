@@ -1,3 +1,5 @@
+# encoding: utf-8
+
 import re
 
 INSERT_NEW_SECTIONS_BEFORE_SECTION = 'app:main'
@@ -168,8 +170,8 @@ def make_changes(input_lines, new_sections, changes):
             for option in changes.get(section, 'add'):
                 write_option(option)
             write_option('')
-            print 'Created option %s = "%s" (NEW section "%s")' % \
-                (option.key, option.value, section)
+            print('Created option %s = "%s" (NEW section "%s")' %
+                  (option.key, option.value, section))
 
     for line in input_lines:
         # leave blank lines alone
@@ -187,9 +189,9 @@ def make_changes(input_lines, new_sections, changes):
             # at start of new section, write the 'add'ed options
             for option in changes.get(section, 'add'):
                 write_option(option)
-            options_to_edit_in_this_section = dict(
-                [(option.key, option)
-                 for option in changes.get(section, 'edit')])
+            options_to_edit_in_this_section = {option.key: option
+                                               for option
+                                               in changes.get(section, 'edit')}
             continue
         existing_option = parse_option_string(section, line)
         if not existing_option:
@@ -203,12 +205,12 @@ def make_changes(input_lines, new_sections, changes):
             key = existing_option.key
             if existing_option.id in options_already_edited:
                 if not existing_option.is_commented_out:
-                    print 'Commented out repeat of %s (section "%s")' % \
-                        (key, section)
+                    print('Commented out repeat of %s (section "%s")' %
+                          (key, section))
                     existing_option.comment_out()
                 else:
-                    print 'Left commented out repeat of %s (section "%s")' % \
-                        (key, section)
+                    print('Left commented out repeat of %s (section "%s")' %
+                          (key, section))
             elif not existing_option.is_commented_out and \
                     updated_option.is_commented_out:
                 changes_made = 'Commented out %s (section "%s")' % \
@@ -231,7 +233,7 @@ def make_changes(input_lines, new_sections, changes):
                         (key, existing_option.value, section)
 
             if changes_made:
-                print changes_made
+                print(changes_made)
                 write_option(updated_option)
                 options_already_edited.add(updated_option.id)
             else:

@@ -1,19 +1,27 @@
+# encoding: utf-8
+
+from six import string_types
+
 import ckan
 from ckan.plugins import SingletonPlugin, implements, IPackageController
 from ckan.plugins import IGroupController, IOrganizationController, ITagController, IResourceController
-import pylons
-from ckan.logic import get_action
-from pylons import config
 
-LANGS = ['en', 'fr', 'de', 'es', 'it', 'nl', 'ro', 'pt', 'pl']
+from ckan.common import request, config, c
+from ckan.logic import get_action
+
+try:
+    long        # Python 2
+except NameError:
+    long = int  # Python 3
+
 
 def translate_data_dict(data_dict):
     '''Return the given dict (e.g. a dataset dict) with as many of its fields
     as possible translated into the desired or the fallback language.
 
     '''
-    desired_lang_code = pylons.request.environ['CKAN_LANG']
-    fallback_lang_code = pylons.config.get('ckan.locale_default', 'en')
+    desired_lang_code = request.environ['CKAN_LANG']
+    fallback_lang_code = config.get('ckan.locale_default', 'en')
 
     # Get a flattened copy of data_dict to do the translation on.
     flattened = ckan.lib.navl.dictization_functions.flatten_dict(
@@ -25,7 +33,7 @@ def translate_data_dict(data_dict):
     for (key, value) in flattened.items():
         if value in (None, True, False):
             continue
-        elif isinstance(value, basestring):
+        elif isinstance(value, string_types):
             terms.add(value)
         elif isinstance(value, (int, long)):
             continue
@@ -73,7 +81,7 @@ def translate_data_dict(data_dict):
             # Don't try to translate values that aren't strings.
             translated_flattened[key] = value
 
-        elif isinstance(value, basestring):
+        elif isinstance(value, string_types):
             if value in desired_translations:
                 translated_flattened[key] = desired_translations[value]
             else:
@@ -107,8 +115,9 @@ def translate_resource_data_dict(data_dict):
     as possible translated into the desired or the fallback language.
 
     '''
-    desired_lang_code = pylons.request.environ['CKAN_LANG']
-    fallback_lang_code = pylons.config.get('ckan.locale_default', 'en')
+
+    desired_lang_code = request.environ['CKAN_LANG']
+    fallback_lang_code = config.get('ckan.locale_default', 'en')
 
     # Get a flattened copy of data_dict to do the translation on.
     flattened = ckan.lib.navl.dictization_functions.flatten_dict(
@@ -116,11 +125,11 @@ def translate_resource_data_dict(data_dict):
 
     # Get a simple flat list of all the terms to be translated, from the
     # flattened data dict.
-    terms = sets.Set()
+    terms = set()
     for (key, value) in flattened.items():
         if value in (None, True, False):
             continue
-        elif isinstance(value, basestring):
+        elif isinstance(value, string_types):
             terms.add(value)
         elif isinstance(value, (int, long)):
             continue
@@ -163,7 +172,7 @@ def translate_resource_data_dict(data_dict):
             # Don't try to translate values that aren't strings.
             translated_flattened[key] = value
 
-        elif isinstance(value, basestring):
+        elif isinstance(value, string_types):
             if value in desired_translations:
                 translated_flattened[key] = desired_translations[value]
             else:
@@ -193,21 +202,22 @@ KEYS_TO_IGNORE = ['state', 'revision_id', 'id', #title done seperately
 
 class MultilingualDataset(SingletonPlugin):
     implements(IPackageController, inherit=True)
+    LANGS = config.get('ckan.locale_order', 'en').split(" ")
 
     def before_index(self, search_data):
 
         default_lang = search_data.get(
-            'lang_code', 
-             pylons.config.get('ckan.locale_default', 'en')
+            'lang_code',
+             config.get('ckan.locale_default', 'en')
         )
 
         ## translate title
         title = search_data.get('title')
-        search_data['title_' + default_lang] = title 
+        search_data['title_' + default_lang] = title
         title_translations = get_action('term_translation_show')(
                           {'model': ckan.model},
                           {'terms': [title],
-                              'lang_codes': LANGS})
+                           'lang_codes': self.LANGS})
 
         for translation in title_translations:
             title_field = 'title_' + translation['lang_code']
@@ -221,16 +231,16 @@ class MultilingualDataset(SingletonPlugin):
             if not isinstance(value, list):
                 value = [value]
             for item in value:
-                if isinstance(item, basestring):
+                if isinstance(item, string_types):
                     all_terms.append(item)
 
         field_translations = get_action('term_translation_show')(
                           {'model': ckan.model},
                           {'terms': all_terms,
-                              'lang_codes': LANGS})
+                           'lang_codes': self.LANGS})
 
-        text_field_items = dict(('text_' + lang, []) for lang in LANGS)
-        
+        text_field_items = dict(('text_' + lang, []) for lang in self.LANGS)
+
         text_field_items['text_' + default_lang].extend(all_terms)
 
         for translation in sorted(field_translations):
@@ -239,14 +249,14 @@ class MultilingualDataset(SingletonPlugin):
 
         for key, value in text_field_items.iteritems():
             search_data[key] = ' '.join(value)
-        
+
         return search_data
 
     def before_search(self, search_params):
-        lang_set = set(LANGS)
+        lang_set = set(self.LANGS)
 
         try:
-            current_lang = pylons.request.environ['CKAN_LANG']
+            current_lang = request.environ['CKAN_LANG']
         except TypeError as err:
             if err.message == ('No object (name: request) has been registered '
                                'for this thread'):
@@ -255,6 +265,8 @@ class MultilingualDataset(SingletonPlugin):
                 current_lang = config.get('ckan.locale_default')
             else:
                 raise
+        except KeyError:
+            current_lang = config.get('ckan.locale_default')
 
         # fallback to default locale if locale not in suported langs
         if not current_lang in lang_set:
@@ -282,8 +294,8 @@ class MultilingualDataset(SingletonPlugin):
         if not facets:
             return search_results
 
-        desired_lang_code = pylons.request.environ['CKAN_LANG']
-        fallback_lang_code = pylons.config.get('ckan.locale_default', 'en')
+        desired_lang_code = request.environ['CKAN_LANG']
+        fallback_lang_code = config.get('ckan.locale_default', 'en')
 
         # Look up translations for all of the facets in one db query.
         terms = set()
@@ -321,9 +333,8 @@ class MultilingualDataset(SingletonPlugin):
         # all the terms in c.fields (c.fields contains the selected facets)
         # and save them in c.translated_fields where the templates can
         # retrieve them later.
-        c = pylons.c
-        desired_lang_code = pylons.request.environ['CKAN_LANG']
-        fallback_lang_code = pylons.config.get('ckan.locale_default', 'en')
+        desired_lang_code = request.environ['CKAN_LANG']
+        fallback_lang_code = config.get('ckan.locale_default', 'en')
         terms = [value for param, value in c.fields]
         translations = get_action('term_translation_show')(
                 {'model': ckan.model},

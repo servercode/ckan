@@ -1,8 +1,12 @@
+# encoding: utf-8
+
 import collections
 import datetime
 from itertools import count
 import re
 import mimetypes
+
+from six import string_types
 
 import ckan.lib.navl.dictization_functions as df
 import ckan.logic as logic
@@ -12,7 +16,8 @@ from ckan.model import (MAX_TAG_LENGTH, MIN_TAG_LENGTH,
                         PACKAGE_VERSION_MAX_LENGTH,
                         VOCABULARY_NAME_MAX_LENGTH,
                         VOCABULARY_NAME_MIN_LENGTH)
-import ckan.new_authz as new_authz
+import ckan.authz as authz
+from ckan.model.core import State
 
 from ckan.common import _
 
@@ -26,8 +31,8 @@ def owner_org_validator(key, data, errors, context):
     value = data.get(key)
 
     if value is missing or value is None:
-        if not new_authz.check_config_permission('create_unowned_dataset'):
-            raise Invalid(_('A organization must be supplied'))
+        if not authz.check_config_permission('create_unowned_dataset'):
+            raise Invalid(_('An organization must be provided'))
         data.pop(key, None)
         raise df.StopOnError
 
@@ -35,16 +40,16 @@ def owner_org_validator(key, data, errors, context):
     user = context['user']
     user = model.User.get(user)
     if value == '':
-        if not new_authz.check_config_permission('create_unowned_dataset'):
-            raise Invalid(_('A organization must be supplied'))
+        if not authz.check_config_permission('create_unowned_dataset'):
+            raise Invalid(_('An organization must be provided'))
         return
 
     group = model.Group.get(value)
     if not group:
         raise Invalid(_('Organization does not exist'))
     group_id = group.id
-    if not(user.sysadmin or
-           new_authz.has_user_permission_for_group_or_org(
+    if not context.get(u'ignore_auth', False) and not(user.sysadmin or
+           authz.has_user_permission_for_group_or_org(
                group_id, user.name, 'create_dataset')):
         raise Invalid(_('You cannot add a dataset to this organization'))
     data[key] = group_id
@@ -101,6 +106,15 @@ def is_positive_integer(value, context):
     return value
 
 def boolean_validator(value, context):
+    '''
+    Return a boolean for value.
+    Return value when value is a python bool type.
+    Return True for strings 'true', 'yes', 't', 'y', and '1'.
+    Return False in all other cases, including when value is an empty string or
+    None
+    '''
+    if value is missing or value is None:
+        return False
     if isinstance(value, bool):
         return value
     if value.lower() in ['true', 'yes', 't', 'y', '1']:
@@ -114,7 +128,7 @@ def isodate(value, context):
         return None
     try:
         date = h.date_str_to_datetime(value)
-    except (TypeError, ValueError), e:
+    except (TypeError, ValueError) as e:
         raise Invalid(_('Date format incorrect'))
     return date
 
@@ -232,20 +246,6 @@ def group_id_exists(group_id, context):
         raise Invalid('%s: %s' % (_('Not found'), _('Group')))
     return group_id
 
-
-def related_id_exists(related_id, context):
-    '''Raises Invalid if the given related_id does not exist in the model
-    given in the context, otherwise returns the given related_id.
-
-    '''
-    model = context['model']
-    session = context['session']
-
-    result = session.query(model.Related).get(related_id)
-    if not result:
-        raise Invalid('%s: %s' % (_('Not found'), _('Related')))
-    return related_id
-
 def group_id_or_name_exists(reference, context):
     '''
     Raises Invalid if a group identified by the name or id cannot be found.
@@ -269,15 +269,6 @@ def activity_type_exists(activity_type):
     else:
         raise Invalid('%s: %s' % (_('Not found'), _('Activity type')))
 
-def resource_id_exists(value, context):
-
-    model = context['model']
-    session = context['session']
-
-    result = session.query(model.Resource).get(value)
-    if not result:
-        raise Invalid('%s: %s' % (_('Not found'), _('Resource')))
-    return value
 
 # A dictionary mapping activity_type values from activity dicts to functions
 # for validating the object_id values from those same activity dicts.
@@ -296,9 +287,6 @@ object_id_validators = {
     'changed organization' : group_id_exists,
     'deleted organization' : group_id_exists,
     'follow group' : group_id_exists,
-    'new related item': related_id_exists,
-    'deleted related item': related_id_exists,
-    'changed related item': related_id_exists,
     }
 
 def object_id_validator(key, activity_dict, errors, context):
@@ -341,7 +329,7 @@ def name_validator(value, context):
         a valid name
 
     '''
-    if not isinstance(value, basestring):
+    if not isinstance(value, string_types):
         raise Invalid(_('Names must be strings'))
 
     # check basic textual rules
@@ -363,15 +351,15 @@ def package_name_validator(key, data, errors, context):
     session = context['session']
     package = context.get('package')
 
-    query = session.query(model.Package.name).filter_by(name=data[key])
+    query = session.query(model.Package.state).filter_by(name=data[key])
     if package:
         package_id = package.id
     else:
         package_id = data.get(key[:-1] + ('id',))
     if package_id and package_id is not missing:
-        query = query.filter(model.Package.id <> package_id)
+        query = query.filter(model.Package.id != package_id)
     result = query.first()
-    if result:
+    if result and result.state != State.DELETED:
         errors[key].append(_('That URL is already in use.'))
 
     value = data[key]
@@ -418,7 +406,7 @@ def group_name_validator(key, data, errors, context):
     else:
         group_id = data.get(key[:-1] + ('id',))
     if group_id and group_id is not missing:
-        query = query.filter(model.Group.id <> group_id)
+        query = query.filter(model.Group.id != group_id)
     result = query.first()
     if result:
         errors[key].append(_('Group name already exists in database'))
@@ -455,7 +443,7 @@ def tag_string_convert(key, data, errors, context):
     and parses tag names. These are added to the data dict, enumerated. They
     are also validated.'''
 
-    if isinstance(data[key], basestring):
+    if isinstance(data[key], string_types):
         tags = [tag.strip() \
                 for tag in data[key].split(',') \
                 if tag.strip()]
@@ -484,7 +472,7 @@ def ignore_not_package_admin(key, data, errors, context):
     if 'ignore_auth' in context:
         return
 
-    if user and new_authz.is_sysadmin(user):
+    if user and authz.is_sysadmin(user):
         return
 
     authorized = False
@@ -512,7 +500,7 @@ def ignore_not_sysadmin(key, data, errors, context):
     user = context.get('user')
     ignore_auth = context.get('ignore_auth')
 
-    if ignore_auth or (user and new_authz.is_sysadmin(user)):
+    if ignore_auth or (user and authz.is_sysadmin(user)):
         return
 
     data.pop(key)
@@ -524,7 +512,7 @@ def ignore_not_group_admin(key, data, errors, context):
     model = context['model']
     user = context.get('user')
 
-    if user and new_authz.is_sysadmin(user):
+    if user and authz.is_sysadmin(user):
         return
 
     authorized = False
@@ -555,14 +543,13 @@ def user_name_validator(key, data, errors, context):
     model = context['model']
     new_user_name = data[key]
 
-    if not isinstance(new_user_name, basestring):
+    if not isinstance(new_user_name, string_types):
         raise Invalid(_('User names must be strings'))
 
     user = model.User.get(new_user_name)
+    user_obj_from_context = context.get('user_obj')
     if user is not None:
         # A user with new_user_name already exists in the database.
-
-        user_obj_from_context = context.get('user_obj')
         if user_obj_from_context and user_obj_from_context.id == user.id:
             # If there's a user_obj in context with the same id as the user
             # found in the db, then we must be doing a user_update and not
@@ -573,6 +560,12 @@ def user_name_validator(key, data, errors, context):
             # name, so you can create a new user with that name or update an
             # existing user's name to that name.
             errors[key].append(_('That login name is not available.'))
+    elif user_obj_from_context:
+        old_user = model.User.get(user_obj_from_context.id)
+        if old_user is not None and old_user.state != model.State.PENDING:
+            errors[key].append(_('That login name can not be modified.'))
+        else:
+            return
 
 def user_both_passwords_entered(key, data, errors, context):
 
@@ -588,12 +581,13 @@ def user_password_validator(key, data, errors, context):
 
     if isinstance(value, Missing):
         pass
-    elif not isinstance(value, basestring):
+    elif not isinstance(value, string_types):
         errors[('password',)].append(_('Passwords must be strings'))
     elif value == '':
         pass
-    elif len(value) < 4:
-        errors[('password',)].append(_('Your password must be 4 characters or longer'))
+    elif len(value) < 8:
+        errors[('password',)].append(_('Your password must be 8 characters or '
+                                       'longer'))
 
 def user_passwords_match(key, data, errors, context):
 
@@ -609,6 +603,11 @@ def user_passwords_match(key, data, errors, context):
 def user_password_not_empty(key, data, errors, context):
     '''Only check if password is present if the user is created via action API.
        If not, user_both_passwords_entered will handle the validation'''
+
+    # sysadmin may provide password_hash directly for importing users
+    if (data.get(('password_hash',), missing) is not missing and
+            authz.is_sysadmin(context.get('user'))):
+        return
 
     if not ('password1',) in data and not ('password2',) in data:
         password = data.get(('password',),None)
@@ -717,7 +716,7 @@ def user_name_exists(user_name, context):
 
 
 def role_exists(role, context):
-    if role not in new_authz.ROLE_PERMISSIONS:
+    if role not in authz.ROLE_PERMISSIONS:
         raise Invalid(_('role does not exist.'))
     return role
 
@@ -755,7 +754,7 @@ def list_of_strings(key, data, errors, context):
     if not isinstance(value, list):
         raise Invalid(_('Not a list'))
     for x in value:
-        if not isinstance(x, basestring):
+        if not isinstance(x, string_types):
             raise Invalid('%s: %s' % (_('Not a string'), x))
 
 def if_empty_guess_format(key, data, errors, context):
@@ -836,7 +835,21 @@ def empty_if_not_sysadmin(key, data, errors, context):
     user = context.get('user')
 
     ignore_auth = context.get('ignore_auth')
-    if ignore_auth or (user and new_authz.is_sysadmin(user)):
+    if ignore_auth or (user and authz.is_sysadmin(user)):
         return
 
     empty(key, data, errors, context)
+
+#pattern from https://html.spec.whatwg.org/#e-mail-state-(type=email)
+email_pattern = re.compile(r"^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9]"\
+                       "(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9]"\
+                       "(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+
+
+def email_validator(value, context):
+    '''Validate email input '''
+
+    if value:
+        if not email_pattern.match(value):
+            raise Invalid(_('Email {email} is not a valid format').format(email=value))
+    return value

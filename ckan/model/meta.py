@@ -1,7 +1,9 @@
+# encoding: utf-8
+
 import datetime
 
 from paste.deploy.converters import asbool
-from pylons import config
+from ckan.common import config
 """SQLAlchemy Metadata and Session object"""
 from sqlalchemy import MetaData, and_
 import sqlalchemy.orm as orm
@@ -21,13 +23,6 @@ class CkanCacheExtension(SessionExtension):
 
     def __init__(self, *args, **kw):
         super(CkanCacheExtension, self).__init__(*args, **kw)
-        # Setup Redis support if needed.
-        self.use_redis = asbool(config.get('ckan.page_cache_enabled'))
-        if self.use_redis:
-            import redis
-            self.redis = redis
-            self.redis_connection is None
-            self.redis_exception = redis.exceptions.ConnectionError
 
     def after_commit(self, session):
         if hasattr(session, '_object_cache'):
@@ -39,17 +34,6 @@ class CkanCacheExtension(SessionExtension):
             for item in oc_list:
                 objs.add(item.__class__.__name__)
 
-        # Flush Redis
-        if self.use_redis:
-            if self.redis_connection is None:
-                try:
-                    self.redis_connection = self.redis.StrictRedis()
-                except self.redis_exception:
-                    pass
-            try:
-                self.redis_connection.flushdb()
-            except self.redis_exception:
-                pass
 
 class CkanSessionExtension(SessionExtension):
 
@@ -85,7 +69,7 @@ class CkanSessionExtension(SessionExtension):
             revision_cls = obj.__revision_class__
             revision_table = orm.class_mapper(revision_cls).mapped_table
             ## when a normal active transaction happens
-    
+
             ### this is an sql statement as we do not want it in object cache
             session.execute(
                 revision_table.update().where(

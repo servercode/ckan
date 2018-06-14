@@ -1,8 +1,11 @@
+# encoding: utf-8
+
 '''
 Helper functions to be used in the auth check functions
 '''
 
 import ckan.logic as logic
+import ckan.authz as authz
 
 
 def _get_object(context, data_dict, name, class_name):
@@ -26,10 +29,6 @@ def _get_object(context, data_dict, name, class_name):
         return obj
 
 
-def get_related_object(context, data_dict=None):
-    return _get_object(context, data_dict, 'related', 'Related')
-
-
 def get_package_object(context, data_dict=None):
     return _get_object(context, data_dict, 'package', 'Package')
 
@@ -44,3 +43,10 @@ def get_group_object(context, data_dict=None):
 
 def get_user_object(context, data_dict=None):
     return _get_object(context, data_dict, 'user_obj', 'User')
+
+
+def restrict_anon(context):
+    if authz.auth_is_anon_user(context):
+        return {'success': False}
+    else:
+        return {'success': True}
